@@ -3480,3 +3480,5 @@ mod propchain_oracle {
 
 // Re-export the contract and error type
 pub use propchain_traits::OracleError;
+
+pub mod reputation_slashing;
