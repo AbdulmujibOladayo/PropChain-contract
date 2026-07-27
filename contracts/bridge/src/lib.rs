@@ -3591,5 +3591,6 @@ mod bridge {
     include!("tests.rs");
 }
 
+pub mod bridge_history_pagination;
 pub mod submodules;
 pub mod token_freeze;
