@@ -11,6 +11,9 @@ pub mod errors;
 pub mod randomness;
 pub mod reentrancy_guard;
 
+pub mod types;
+pub use types::*;
+
 pub use access_control::*;
 pub use crypto::*;
 pub use di::*;
