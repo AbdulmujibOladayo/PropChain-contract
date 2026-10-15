@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Wed Oct 14 07:05:31 UTC 2026
+Generated on: Thu Oct 15 06:56:29 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -15,6 +15,42 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[31mID:       [0m RUSTSEC-2026-0258
 [0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0258
 [0m[0m[1m[31mSolution: [0m Upgrade to >=0.4.16
+
+[0m[0m[1m[31mCrate:    [0m rustls
+[0m[0m[1m[31mVersion:  [0m 0.21.12
+[0m[0m[1m[31mTitle:    [0m Unauthenticated ServerHello can downgrade later connections to classical key exchange
+[0m[0m[1m[31mDate:     [0m 2026-10-14
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0349
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0349
+[0m[0m[1m[31mSeverity: [0m 3.7 (low)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.23.46
+
+[0m[0m[1m[31mCrate:    [0m rustls
+[0m[0m[1m[31mVersion:  [0m 0.21.12
+[0m[0m[1m[31mTitle:    [0m `Debug` impls for client session values expose TLS secrets
+[0m[0m[1m[31mDate:     [0m 2026-10-14
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0346
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0346
+[0m[0m[1m[31mSeverity: [0m 4 (medium)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.23.46
+
+[0m[0m[1m[31mCrate:    [0m rustls
+[0m[0m[1m[31mVersion:  [0m 0.22.4
+[0m[0m[1m[31mTitle:    [0m Unauthenticated ServerHello can downgrade later connections to classical key exchange
+[0m[0m[1m[31mDate:     [0m 2026-10-14
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0349
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0349
+[0m[0m[1m[31mSeverity: [0m 3.7 (low)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.23.46
+
+[0m[0m[1m[31mCrate:    [0m rustls
+[0m[0m[1m[31mVersion:  [0m 0.22.4
+[0m[0m[1m[31mTitle:    [0m `Debug` impls for client session values expose TLS secrets
+[0m[0m[1m[31mDate:     [0m 2026-10-14
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0346
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0346
+[0m[0m[1m[31mSeverity: [0m 4 (medium)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.23.46
 
 [0m[0m[1m[31mCrate:    [0m rustls-webpki
 [0m[0m[1m[31mVersion:  [0m 0.101.7
