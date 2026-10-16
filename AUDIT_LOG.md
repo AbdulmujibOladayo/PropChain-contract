@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Thu Oct 15 06:56:29 UTC 2026
+Generated on: Fri Oct 16 06:43:26 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -215,6 +215,10 @@ cargo-deny failed or flagged warnings
 
 [0m[0m[1m[33mCrate:    [0m spin
 [0m[0m[1m[33mVersion:  [0m 0.9.8
+[0m[0m[1m[33mWarning:  [0m yanked
+
+[0m[0m[1m[33mCrate:    [0m zip
+[0m[0m[1m[33mVersion:  [0m 2.3.0
 [0m[0m[1m[33mWarning:  [0m yanked
 
 cargo-audit detected critical vulnerability markers
