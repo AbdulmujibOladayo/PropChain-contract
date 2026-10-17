@@ -43,6 +43,25 @@
 //! own storage (not the proxy's). For true delegatecall semantics (shared
 //! storage), a low-level ink! storage overlay would be required — this is out
 //! of scope for the initial implementation.
+//!
+//! ## Access control audit (#1274)
+//!
+//! Every mutating message routes through `ensure_admin` *before* any state is
+//! read or written, so a rejected call cannot leave partial state behind:
+//! `set_implementation`, `confirm_implementation`, `cancel_implementation` and
+//! `set_upgrade_delay_blocks` are all admin-gated. `call_implementation` is
+//! deliberately permissionless — it mutates no proxy state and only forwards
+//! a call the caller could have made directly.
+//!
+//! Audit findings applied here:
+//! - Staging the *currently live* implementation was a reachable no-op
+//!   upgrade: it started a timelock that, once confirmed, changed nothing
+//!   while still consuming an admin transaction and emitting misleading
+//!   events. `set_implementation` now rejects it with
+//!   `AlreadyImplemented`.
+//! - Zero-address inputs are rejected (`InvalidImplementation`), the delay is
+//!   bounded (`MIN`/`MAX_UPGRADE_DELAY_BLOCKS`) and effective-block
+//!   arithmetic saturates, so no input can wrap the timelock into the past.
 
 #[ink::contract]
 pub mod propchain_proxy {
@@ -249,7 +268,7 @@ pub mod propchain_proxy {
             }
             Ok(Self {
                 implementation,
-                pending_implementation: AccountId::from([0u8; 32]),
+                pending_implementation: zero_account(),
                 upgrade_effective_at: 0,
                 admin,
                 upgrade_delay_blocks: DEFAULT_UPGRADE_DELAY_BLOCKS,
@@ -270,8 +289,14 @@ pub mod propchain_proxy {
             new_implementation: AccountId,
         ) -> Result<(), ProxyError> {
             self.ensure_admin()?;
-            if new_implementation == AccountId::from([0u8; 32]) {
+            if new_implementation == zero_account() {
                 return Err(ProxyError::InvalidImplementation);
+            }
+            // Access-control audit (#1274): staging the live implementation
+            // would start a timelock for an upgrade that changes nothing when
+            // confirmed, while still emitting staging/confirmation events.
+            if new_implementation == self.implementation {
+                return Err(ProxyError::AlreadyImplemented);
             }
             let current_block = self.env().block_number() as u64;
             self.pending_implementation = new_implementation;
@@ -296,7 +321,11 @@ pub mod propchain_proxy {
         #[ink(message)]
         pub fn confirm_implementation(&mut self) -> Result<(), ProxyError> {
             self.ensure_admin()?;
-            if self.pending_implementation == AccountId::from([0u8; 32]) {
+            // Read the pending slot once into a local; the value is needed
+            // both for the sentinel check below and for the assignment, and a
+            // single read is cheaper than two storage loads.
+            let pending = self.pending_implementation;
+            if pending == zero_account() {
                 return Err(ProxyError::NoPendingUpgrade);
             }
             let current_block = self.env().block_number() as u64;
@@ -305,8 +334,8 @@ pub mod propchain_proxy {
             }
 
             let old = self.implementation;
-            self.implementation = self.pending_implementation;
-            self.pending_implementation = AccountId::from([0u8; 32]);
+            self.implementation = pending;
+            self.pending_implementation = zero_account();
             self.upgrade_effective_at = 0;
 
             self.env().emit_event(UpgradeConfirmed {
@@ -335,11 +364,11 @@ pub mod propchain_proxy {
         #[ink(message)]
         pub fn cancel_implementation(&mut self) -> Result<(), ProxyError> {
             self.ensure_admin()?;
-            if self.pending_implementation == AccountId::from([0u8; 32]) {
+            let cancelled = self.pending_implementation;
+            if cancelled == zero_account() {
                 return Err(ProxyError::NoPendingUpgrade);
             }
-            let cancelled = self.pending_implementation;
-            self.pending_implementation = AccountId::from([0u8; 32]);
+            self.pending_implementation = zero_account();
             // Clearing the timer alongside the address matters: leaving a
             // stale `upgrade_effective_at` behind would mean a later
             // `set_implementation` at a low block number could appear
@@ -508,6 +537,9 @@ pub mod propchain_proxy {
 
         // ── Internal ──────────────────────────────────────────────────────
 
+        /// Hot path for every privileged message: a single caller/account
+        /// comparison, inlined so the check costs no extra call overhead.
+        #[inline]
         fn ensure_admin(&self) -> Result<(), ProxyError> {
             if self.env().caller() != self.admin {
                 return Err(ProxyError::Unauthorized);
