@@ -45,7 +45,7 @@ jobs:
         run: cargo deny check
 
       - name: Generate Workspace SBOM
-        run: cargo sbom --output-format spdxjson23 > propchain-sbom.json
+        run: cargo sbom --output-format spdx_json_2_3 > propchain-sbom.json
 
       - name: Validate SBOM Shape
         run: |

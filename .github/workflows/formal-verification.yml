@@ -1,4 +1,4 @@
-﻿name: Formal Verification (Kani)
+name: Formal Verification (Kani)
 
 on:
   pull_request:

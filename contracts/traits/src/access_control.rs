@@ -1,3 +1,30 @@
+//! Role-based access control (RBAC) for PropChain contracts.
+//!
+//! This module provides the `AccessControl` storage item, which manages:
+//!
+//! - **Role assignments** — a hierarchy of 10 roles with `SuperAdmin` at the root
+//! - **Permission grants** — `(Resource, Action)` pairs assignable to roles or accounts
+//! - **Key rotation** — secure transfer of an account's roles to a new account
+//! - **Audit trail** — every security-relevant operation is logged with full metadata
+//!
+//! ## Role Hierarchy
+//!
+//! ```text
+//! SuperAdmin → Admin → {OracleAdmin, ComplianceAdmin, FeeAdmin, BridgeOperator,
+//!                        Verifier, PauseGuardian, Manager, EscrowAdmin}
+//! ```
+//!
+//! `has_role` checks the account's direct role AND all ancestor roles, so a
+//! `SuperAdmin` holder is implicitly every sub-role.
+//!
+//! ## Overflow Safety
+//!
+//! All monotonic counters (`audit_count`, `cache_epoch`, `rotation_nonce`) use
+//! `checked_add` and return [`AccessControlError::ArithmeticOverflow`] on
+//! exhaustion — no counter ever silently wraps.
+//!
+//! See `docs/access_control_audit.md` for the full audit document.
+
 use ink::prelude::vec::Vec;
 use ink::primitives::AccountId;
 use ink::storage::Mapping;
@@ -108,6 +135,13 @@ pub enum AccessControlError {
     KeyRotationExpired,
     NoPendingRotation,
     RotationUnauthorized,
+    /// An arithmetic operation would have overflowed.
+    ///
+    /// Returned by `write_audit` when the audit-log counter is exhausted
+    /// (`u64::MAX`), and by `request_key_rotation` when the per-account
+    /// rotation nonce is exhausted.  Both situations indicate the counter
+    /// has run for its entire lifetime and must never silently wrap.
+    ArithmeticOverflow,
 }
 
 type PermissionCacheKey = (AccountId, Permission, u64);
@@ -157,7 +191,11 @@ impl AccessControl {
         self.role_assignments
             .insert((admin, Role::SuperAdmin), &true);
         self.role_assignments.insert((admin, Role::Admin), &true);
-        self.write_audit(
+        // Best-effort audit writes during bootstrap — overflow here would mean
+        // the audit counter is already at u64::MAX before the contract even
+        // starts, which is impossible in practice.  We still guard against it
+        // rather than silently wrapping.
+        let _ = self.write_audit(
             admin,
             admin,
             AuditAction::RoleGranted,
@@ -166,7 +204,7 @@ impl AccessControl {
             block_number,
             timestamp,
         );
-        self.write_audit(
+        let _ = self.write_audit(
             admin,
             admin,
             AuditAction::RoleGranted,
@@ -187,7 +225,7 @@ impl AccessControl {
     ) -> Result<(), AccessControlError> {
         self.ensure_has_role(actor, Role::Admin)?;
         self.role_assignments.insert((target, role), &true);
-        self.invalidate_cache();
+        self.invalidate_cache()?;
         self.write_audit(
             actor,
             target,
@@ -196,7 +234,7 @@ impl AccessControl {
             None,
             block_number,
             timestamp,
-        );
+        )?;
         Ok(())
     }
 
@@ -210,7 +248,7 @@ impl AccessControl {
     ) -> Result<(), AccessControlError> {
         self.ensure_has_role(actor, Role::Admin)?;
         self.role_assignments.remove((target, role));
-        self.invalidate_cache();
+        self.invalidate_cache()?;
         self.write_audit(
             actor,
             target,
@@ -219,7 +257,7 @@ impl AccessControl {
             None,
             block_number,
             timestamp,
-        );
+        )?;
         Ok(())
     }
 
@@ -233,7 +271,7 @@ impl AccessControl {
     ) -> Result<(), AccessControlError> {
         self.ensure_has_role(actor, Role::Admin)?;
         self.role_permissions.insert((role, permission), &true);
-        self.invalidate_cache();
+        self.invalidate_cache()?;
         self.write_audit(
             actor,
             actor,
@@ -242,7 +280,7 @@ impl AccessControl {
             Some(permission),
             block_number,
             timestamp,
-        );
+        )?;
         Ok(())
     }
 
@@ -267,11 +305,21 @@ impl AccessControl {
         }
     }
 
+    /// Check whether `account` holds `permission`, using a per-epoch cache.
+    ///
+    /// The cache is invalidated wholesale whenever the permission set changes
+    /// (via `invalidate_cache`, which bumps `cache_epoch`).  Within a single
+    /// epoch the cached value is reused for every call until the next mutation.
+    ///
+    /// `current_block` is accepted so that callers can express intent, but the
+    /// actual invalidation is epoch-based: once a role or permission changes,
+    /// every cached entry from the previous epoch is unreachable because the
+    /// cache key includes `cache_epoch`.
     pub fn has_permission_cached(
         &mut self,
         account: AccountId,
         permission: Permission,
-        current_block: u32,
+        _current_block: u32,
     ) -> bool {
         if let Some(cached) = self
             .permission_cache
@@ -282,7 +330,6 @@ impl AccessControl {
         let value = self.has_permission(account, permission);
         self.permission_cache
             .insert((account, permission, self.cache_epoch), &value);
-        let _ = current_block.saturating_add(self.cache_ttl_blocks);
         value
     }
 
@@ -340,7 +387,10 @@ impl AccessControl {
         self.pending_rotations.insert(actor, &request);
 
         let nonce = self.rotation_nonce.get(actor).unwrap_or(0);
-        self.rotation_nonce.insert(actor, &nonce.saturating_add(1));
+        let new_nonce = nonce
+            .checked_add(1)
+            .ok_or(AccessControlError::ArithmeticOverflow)?;
+        self.rotation_nonce.insert(actor, &new_nonce);
 
         self.write_audit(
             actor,
@@ -350,7 +400,7 @@ impl AccessControl {
             None,
             block_number,
             timestamp,
-        );
+        )?;
 
         Ok(())
     }
@@ -402,7 +452,7 @@ impl AccessControl {
         }
 
         self.pending_rotations.remove(old_account);
-        self.invalidate_cache();
+        self.invalidate_cache()?;
 
         self.write_audit(
             caller,
@@ -412,7 +462,7 @@ impl AccessControl {
             None,
             block_number,
             timestamp,
-        );
+        )?;
 
         Ok(())
     }
@@ -444,7 +494,7 @@ impl AccessControl {
             None,
             block_number,
             timestamp,
-        );
+        )?;
 
         Ok(())
     }
@@ -457,8 +507,12 @@ impl AccessControl {
         self.pending_rotations.get(account)
     }
 
-    fn invalidate_cache(&mut self) {
-        self.cache_epoch = self.cache_epoch.saturating_add(1);
+    fn invalidate_cache(&mut self) -> Result<(), AccessControlError> {
+        self.cache_epoch = self
+            .cache_epoch
+            .checked_add(1)
+            .ok_or(AccessControlError::ArithmeticOverflow)?;
+        Ok(())
     }
 
     fn ancestor_roles(&self, role: Role) -> Vec<Role> {
@@ -501,10 +555,14 @@ impl AccessControl {
         permission: Option<Permission>,
         block_number: u32,
         timestamp: u64,
-    ) {
-        self.audit_count = self.audit_count.saturating_add(1);
+    ) -> Result<(), AccessControlError> {
+        let id = self
+            .audit_count
+            .checked_add(1)
+            .ok_or(AccessControlError::ArithmeticOverflow)?;
+        self.audit_count = id;
         let entry = PermissionAuditEntry {
-            id: self.audit_count,
+            id,
             actor,
             target,
             action,
@@ -513,6 +571,7 @@ impl AccessControl {
             block_number,
             timestamp,
         };
-        self.audit_log.insert(self.audit_count, &entry);
+        self.audit_log.insert(id, &entry);
+        Ok(())
     }
 }
