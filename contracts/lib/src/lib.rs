@@ -1305,8 +1305,10 @@ pub mod propchain_contracts {
                 fee_manager: None,
                 fractional: Mapping::default(),
                 access_control: {
-                    let mut ac = AccessControl::new(64);
-                    ac.bootstrap(caller, block_number, timestamp);
+                    let mut ac = AccessControl::new(64)
+                        .expect("cache_ttl_blocks is non-zero; infallible");
+                    ac.bootstrap(caller, block_number, timestamp)
+                        .expect("caller is the constructor sender; infallible");
                     let _ = ac.grant_role(caller, caller, Role::Verifier, block_number, timestamp);
                     let _ =
                         ac.grant_role(caller, caller, Role::PauseGuardian, block_number, timestamp);

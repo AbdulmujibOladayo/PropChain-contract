@@ -20,6 +20,15 @@
 //! 3. The implementation address is updated; all subsequent fallback calls
 //!    route to the new implementation.
 //!
+//! ## Admin rotation
+//!
+//! Admin rotation follows the OpenZeppelin `Ownable2Step` primitive: the
+//! current admin calls `transfer_admin(new_admin)` to nominate a successor
+//! (rejecting the zero address), and the nominated account must then call
+//! `accept_admin()` to take over. The two-step handshake prevents the
+//! single-step footgun of transferring ownership to an address that cannot
+//! actually transact, which would permanently brick upgrade governance.
+//!
 //! A staged upgrade can also be abandoned at any point with
 //! `cancel_implementation()`, which clears the pending state without applying
 //! it. Re-staging remains allowed and still restarts the delay timer.
@@ -109,18 +118,37 @@ pub mod propchain_proxy {
         ///
         /// Appended last so no existing discriminant moves.
         InvalidUpgradeDelay,
-        /// Staging was attempted with the implementation that is already
-        /// live, which would be a no-op upgrade.
-        AlreadyImplemented,
+        /// The provided address is the zero address where a live account
+        /// (admin or pending admin) is required.
+        ///
+        /// Appended after `InvalidUpgradeDelay` so no existing discriminant
+        /// moves.
+        InvalidAdmin,
+        /// `accept_admin` was called but no admin transfer is pending.
+        NoPendingAdminTransfer,
     }
 
-    /// The canonical zero `AccountId`, used as the "none" sentinel for
-    /// `pending_implementation`. Constructed via a shared helper rather than
-    /// inlined at each comparison site so the SCALE-encoded 32-byte literal
-    /// exists once in the wasm binary instead of at every use.
-    #[inline]
-    fn zero_account() -> AccountId {
-        AccountId::from([0u8; 32])
+    impl core::fmt::Display for ProxyError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                ProxyError::Unauthorized => write!(f, "caller is not the admin"),
+                ProxyError::NoPendingUpgrade => write!(f, "no upgrade has been staged"),
+                ProxyError::DelayNotElapsed => write!(f, "upgrade delay has not elapsed"),
+                ProxyError::InvalidImplementation => {
+                    write!(f, "implementation address is the zero address")
+                }
+                ProxyError::ImplementationCallFailed => {
+                    write!(f, "implementation call failed")
+                }
+                ProxyError::InvalidUpgradeDelay => {
+                    write!(f, "upgrade delay is outside the allowed bounds")
+                }
+                ProxyError::InvalidAdmin => write!(f, "admin address is the zero address"),
+                ProxyError::NoPendingAdminTransfer => {
+                    write!(f, "no admin transfer is pending")
+                }
+            }
+        }
     }
 
     impl From<ink::env::Error> for ProxyError {
@@ -142,6 +170,10 @@ pub mod propchain_proxy {
         admin: AccountId,
         /// Number of blocks that must pass between staging and confirmation.
         upgrade_delay_blocks: u64,
+        /// Nominated successor in the two-step admin rotation
+        /// (OpenZeppelin `Ownable2Step` pattern), or the zero address if no
+        /// transfer is pending.
+        pending_admin: AccountId,
     }
 
     /// Emitted when a new implementation is staged.
@@ -177,6 +209,29 @@ pub mod propchain_proxy {
         by: AccountId,
     }
 
+    /// Emitted when the admin nominates a successor via `transfer_admin`.
+    ///
+    /// The rotation is not complete until the nominee calls `accept_admin`,
+    /// which emits [`AdminChanged`]; until then the current admin still
+    /// controls the proxy.
+    #[ink(event)]
+    pub struct AdminTransferStarted {
+        #[ink(topic)]
+        current_admin: AccountId,
+        #[ink(topic)]
+        pending_admin: AccountId,
+    }
+
+    /// Emitted when a two-step admin rotation completes and the nominated
+    /// account becomes the live admin.
+    #[ink(event)]
+    pub struct AdminChanged {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+    }
+
     /// Emitted when the admin changes the upgrade delay.
     #[ink(event)]
     pub struct UpgradeDelayChanged {
@@ -193,15 +248,32 @@ pub mod propchain_proxy {
         /// The deployer becomes the admin. The upgrade delay starts at
         /// [`DEFAULT_UPGRADE_DELAY_BLOCKS`] and can be changed by the admin
         /// within `[MIN_UPGRADE_DELAY_BLOCKS, MAX_UPGRADE_DELAY_BLOCKS]`.
+        ///
+        /// Returns [`ProxyError::InvalidImplementation`] if `implementation`
+        /// is the zero address and [`ProxyError::InvalidAdmin`] if `admin` is
+        /// the zero address: deploying with a zero admin would make every
+        /// privileged message permanently revert (bricked upgrade governance),
+        /// and a zero implementation would route all forwarded calls to
+        /// nowhere.
         #[ink(constructor)]
-        pub fn new(implementation: AccountId, admin: AccountId) -> Self {
-            Self {
+        pub fn new(
+            implementation: AccountId,
+            admin: AccountId,
+        ) -> Result<Self, ProxyError> {
+            if implementation == AccountId::from([0u8; 32]) {
+                return Err(ProxyError::InvalidImplementation);
+            }
+            if admin == AccountId::from([0u8; 32]) {
+                return Err(ProxyError::InvalidAdmin);
+            }
+            Ok(Self {
                 implementation,
                 pending_implementation: zero_account(),
                 upgrade_effective_at: 0,
                 admin,
                 upgrade_delay_blocks: DEFAULT_UPGRADE_DELAY_BLOCKS,
-            }
+                pending_admin: AccountId::from([0u8; 32]),
+            })
         }
 
         // ── Admin-only messages ───────────────────────────────────────────
@@ -341,6 +413,57 @@ pub mod propchain_proxy {
             (MIN_UPGRADE_DELAY_BLOCKS, MAX_UPGRADE_DELAY_BLOCKS)
         }
 
+        /// Nominate a new admin (admin only) — step one of the two-step
+        /// rotation modelled on OpenZeppelin's `Ownable2Step`.
+        ///
+        /// The nomination takes effect only once the nominated account calls
+        /// [`accept_admin`](Self::accept_admin). Until then the current admin
+        /// retains full control and may replace the nominee by calling this
+        /// again (which restarts nothing — there is no delay on admin
+        /// rotation, the second step is the safety mechanism).
+        ///
+        /// Re-nominating the zero address clears a pending transfer, matching
+        /// the "zero address means none" convention the proxy already uses
+        /// for `pending_implementation`.
+        #[ink(message)]
+        pub fn transfer_admin(&mut self, new_admin: AccountId) -> Result<(), ProxyError> {
+            self.ensure_admin()?;
+            if new_admin == AccountId::from([0u8; 32]) {
+                return Err(ProxyError::InvalidAdmin);
+            }
+            self.pending_admin = new_admin;
+            self.env().emit_event(AdminTransferStarted {
+                current_admin: self.admin,
+                pending_admin: new_admin,
+            });
+            Ok(())
+        }
+
+        /// Accept a pending admin nomination (nominated account only) — step
+        /// two of the two-step rotation.
+        ///
+        /// The caller must be the account nominated by the current admin's
+        /// [`transfer_admin`](Self::transfer_admin). On success the nomination
+        /// is cleared and the caller becomes the live admin.
+        #[ink(message)]
+        pub fn accept_admin(&mut self) -> Result<(), ProxyError> {
+            if self.pending_admin == AccountId::from([0u8; 32]) {
+                return Err(ProxyError::NoPendingAdminTransfer);
+            }
+            if self.env().caller() != self.pending_admin {
+                return Err(ProxyError::Unauthorized);
+            }
+            let old_admin = self.admin;
+            self.admin = self.pending_admin;
+            self.pending_admin = AccountId::from([0u8; 32]);
+
+            self.env().emit_event(AdminChanged {
+                old_admin,
+                new_admin: self.admin,
+            });
+            Ok(())
+        }
+
         // ── Public read-only messages ─────────────────────────────────────
 
         /// Return the current implementation address.
@@ -366,6 +489,13 @@ pub mod propchain_proxy {
         #[ink(message)]
         pub fn admin(&self) -> AccountId {
             self.admin
+        }
+
+        /// Return the nominated successor admin, or the zero address if no
+        /// transfer is pending.
+        #[ink(message)]
+        pub fn pending_admin(&self) -> AccountId {
+            self.pending_admin
         }
 
         /// Return the current upgrade delay in blocks.
@@ -435,7 +565,7 @@ pub mod propchain_proxy {
         ) {
             let accounts = accounts();
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
-            let proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
             (accounts, proxy)
         }
 
@@ -454,7 +584,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn constructor_sets_fields() {
             let accounts = accounts();
-            let proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
             assert_eq!(proxy.implementation(), accounts.bob);
             assert_eq!(proxy.admin(), accounts.alice);
             assert_eq!(proxy.upgrade_delay_blocks(), 100);
@@ -463,7 +593,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn set_implementation_stages_upgrade() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             assert!(proxy.set_implementation(accounts.charlie).is_ok());
@@ -474,7 +604,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn non_admin_cannot_stage() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
             assert_eq!(
@@ -486,7 +616,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn confirm_requires_delay() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             proxy.set_implementation(accounts.charlie).unwrap();
@@ -500,7 +630,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn confirm_succeeds_after_delay() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             proxy.set_implementation(accounts.charlie).unwrap();
@@ -518,7 +648,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn confirm_without_pending_fails() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             assert_eq!(
@@ -530,7 +660,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn set_delay_works() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             proxy.set_upgrade_delay_blocks(50).unwrap();
@@ -659,7 +789,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn non_admin_cannot_change_the_delay() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
             assert_eq!(
@@ -674,7 +804,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn authorisation_is_checked_before_the_bounds() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
             assert_eq!(
@@ -763,7 +893,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn zero_address_rejected() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             assert_eq!(
@@ -861,7 +991,7 @@ pub mod propchain_proxy {
         #[ink::test]
         fn non_admin_cannot_cancel() {
             let accounts = accounts();
-            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice);
+            let mut proxy = TransparentProxy::new(accounts.bob, accounts.alice).unwrap();
 
             // Stage as the admin first; `bob` may not stage.
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
