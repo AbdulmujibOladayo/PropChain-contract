@@ -1,0 +1,78 @@
+name: ProxyUpgrade Static Analysis
+
+# Slither is a Solidity static analyser, but ProxyUpgrade in this repository
+# is an ink!/Rust contract (contracts/proxy). This workflow therefore runs
+# Slither against any Solidity sources that are added under contracts/proxy,
+# and falls back to the Rust static-analysis equivalent (Clippy with
+# `-D warnings`) for the ink! implementation.
+
+on:
+  pull_request:
+    paths:
+      - "contracts/proxy/**"
+      - ".github/workflows/slither.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "contracts/proxy/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proxy-static-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slither:
+    name: Slither / Clippy on contracts/proxy
+    runs-on: ubuntu-latest
+
+    # Least privilege: read-only repository access.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect Solidity sources under contracts/proxy
+        id: sol
+        run: |
+          if find contracts/proxy -name '*.sol' -print -quit | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Slither
+        if: steps.sol.outputs.present == 'true'
+        uses: crytic/slither-action@v0.4.0
+        with:
+          target: contracts/proxy
+          fail-on: high
+
+      - name: Install Rust toolchain
+        if: steps.sol.outputs.present == 'false'
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Cache Cargo dependencies
+        if: steps.sol.outputs.present == 'false'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-proxy-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Clippy on the ink! proxy
+        if: steps.sol.outputs.present == 'false'
+        run: |
+          echo "ProxyUpgrade is an ink! contract; Slither analyses Solidity only."
+          echo "Running the Rust static-analysis gate instead."
+          cargo clippy -p propchain-proxy --lib -- -D warnings

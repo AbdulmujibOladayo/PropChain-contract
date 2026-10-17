@@ -301,6 +301,11 @@ pub mod propchain_proxy {
         /// The upgrade will not be confirmable until `upgrade_delay_blocks`
         /// blocks have passed. Calling this again before confirmation replaces
         /// the staged address and restarts the timer.
+        // The explicit `checked_add` below is deliberate (#1276): Clippy would
+        // prefer `saturating_add`, but spelling the overflow check out keeps
+        // the guard visible instead of relying on `saturating_*` as an
+        // implicit barrier.
+        #[allow(clippy::manual_saturating_arithmetic)]
         #[ink(message)]
         pub fn set_implementation(
             &mut self,
@@ -318,13 +323,18 @@ pub mod propchain_proxy {
             }
             let current_block = self.env().block_number() as u64;
             self.pending_implementation = new_implementation;
-            // `saturating_add` rather than `+`: the configured delay is now
-            // bounded, but a wrapped sum would land `upgrade_effective_at` in
-            // the past and make this "delayed" upgrade confirmable immediately,
-            // which is the exact failure the timelock exists to prevent. If the
-            // sum would ever saturate, the upgrade stays unconfirmable, which
-            // is the safe direction to fail in.
-            self.upgrade_effective_at = current_block.saturating_add(self.upgrade_delay_blocks);
+            // `checked_add` rather than `+` (#1276): with the delay bounded by
+            // `MAX_UPGRADE_DELAY_BLOCKS` this cannot overflow in practice, but
+            // a wrapped sum would land `upgrade_effective_at` in the past and
+            // make this "delayed" upgrade confirmable immediately — the exact
+            // failure the timelock exists to prevent. On the impossible
+            // overflow we saturate to `u64::MAX`, leaving the upgrade
+            // permanently unconfirmable, which is the safe direction to fail
+            // in. Using `checked_add` states the guard explicitly instead of
+            // relying on `saturating_add` as an implicit overflow barrier.
+            self.upgrade_effective_at = current_block
+                .checked_add(self.upgrade_delay_blocks)
+                .unwrap_or(u64::MAX);
 
             self.env().emit_event(UpgradeStaged {
                 new_implementation,
