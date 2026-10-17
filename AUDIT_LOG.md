@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Fri Oct 16 06:43:26 UTC 2026
+Generated on: Sat Oct 17 06:33:05 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -117,6 +117,32 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[31mSeverity: [0m 7.5 (high)
 [0m[0m[1m[31mSolution: [0m Upgrade to >=0.9.1
 
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m ZipStreamReader::extract() and ZipArchive::extract() apply Unix permissions through symlinks without confining the target
+[0m[0m[1m[31mDate:     [0m 2026-10-10
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0369
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0369
+[0m[0m[1m[31mSeverity: [0m 9.1 (critical)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m  Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation
+[0m[0m[1m[31mDate:     [0m 2026-10-09
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0367
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0367
+[0m[0m[1m[31mSeverity: [0m 7.3 (high)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m zip: `ZipArchive::extract` creates symbolic links whose attacker-controlled targets are outside the destination directory
+[0m[0m[1m[31mDate:     [0m 2026-10-09
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0368
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0368
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
 [0m[0m[1m[33mCrate:    [0m instant
 [0m[0m[1m[33mVersion:  [0m 0.1.13
 [0m[0m[1m[33mWarning:  [0m unmaintained
@@ -215,10 +241,6 @@ cargo-deny failed or flagged warnings
 
 [0m[0m[1m[33mCrate:    [0m spin
 [0m[0m[1m[33mVersion:  [0m 0.9.8
-[0m[0m[1m[33mWarning:  [0m yanked
-
-[0m[0m[1m[33mCrate:    [0m zip
-[0m[0m[1m[33mVersion:  [0m 2.3.0
 [0m[0m[1m[33mWarning:  [0m yanked
 
 cargo-audit detected critical vulnerability markers
