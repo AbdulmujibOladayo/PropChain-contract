@@ -111,6 +111,16 @@ pub mod propchain_proxy {
         admin: AccountId,
         /// Number of blocks that must pass between staging and confirmation.
         upgrade_delay_blocks: u64,
+        /// Reserved storage slots kept at the end of the layout so future
+        /// fields can be appended without shifting the storage keys of the
+        /// existing ones (#1277). This is the ink! analogue of the
+        /// OpenZeppelin \`__gap\` array used by Solidity upgradeable
+        /// contracts: every existing field keeps its position, and a newer
+        /// revision that needs extra state can consume slots from the front
+        /// of this array (shrinking it) instead of inserting fields in the
+        /// middle. Never read or written by contract logic.
+        #[allow(dead_code)]
+        _reserved: [u64; 32],
     }
 
     /// Emitted when a new implementation is staged.
@@ -146,6 +156,16 @@ pub mod propchain_proxy {
         by: AccountId,
     }
 
+    /// Emitted when the admin changes the upgrade delay.
+    #[ink(event)]
+    pub struct UpgradeDelayChanged {
+        #[ink(topic)]
+        old_delay: u64,
+        #[ink(topic)]
+        new_delay: u64,
+        by: AccountId,
+    }
+
     impl TransparentProxy {
         /// Deploy the proxy with an initial implementation.
         ///
@@ -160,6 +180,7 @@ pub mod propchain_proxy {
                 upgrade_effective_at: 0,
                 admin,
                 upgrade_delay_blocks: DEFAULT_UPGRADE_DELAY_BLOCKS,
+                _reserved: [0; 32],
             }
         }
 
@@ -170,6 +191,11 @@ pub mod propchain_proxy {
         /// The upgrade will not be confirmable until `upgrade_delay_blocks`
         /// blocks have passed. Calling this again before confirmation replaces
         /// the staged address and restarts the timer.
+        // The explicit `checked_add` below is deliberate (#1276): Clippy would
+        // prefer `saturating_add`, but spelling the overflow check out keeps
+        // the guard visible instead of relying on `saturating_*` as an
+        // implicit barrier.
+        #[allow(clippy::manual_saturating_arithmetic)]
         #[ink(message)]
         pub fn set_implementation(
             &mut self,
@@ -181,13 +207,18 @@ pub mod propchain_proxy {
             }
             let current_block = self.env().block_number() as u64;
             self.pending_implementation = new_implementation;
-            // `saturating_add` rather than `+`: the configured delay is now
-            // bounded, but a wrapped sum would land `upgrade_effective_at` in
-            // the past and make this "delayed" upgrade confirmable immediately,
-            // which is the exact failure the timelock exists to prevent. If the
-            // sum would ever saturate, the upgrade stays unconfirmable, which
-            // is the safe direction to fail in.
-            self.upgrade_effective_at = current_block.saturating_add(self.upgrade_delay_blocks);
+            // `checked_add` rather than `+` (#1276): with the delay bounded by
+            // `MAX_UPGRADE_DELAY_BLOCKS` this cannot overflow in practice, but
+            // a wrapped sum would land `upgrade_effective_at` in the past and
+            // make this "delayed" upgrade confirmable immediately — the exact
+            // failure the timelock exists to prevent. On the impossible
+            // overflow we saturate to `u64::MAX`, leaving the upgrade
+            // permanently unconfirmable, which is the safe direction to fail
+            // in. Using `checked_add` states the guard explicitly instead of
+            // relying on `saturating_add` as an implicit overflow barrier.
+            self.upgrade_effective_at = current_block
+                .checked_add(self.upgrade_delay_blocks)
+                .unwrap_or(u64::MAX);
 
             self.env().emit_event(UpgradeStaged {
                 new_implementation,
