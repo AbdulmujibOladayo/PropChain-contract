@@ -529,10 +529,13 @@ mod propchain_oracle {
         /// Constructor for the Property Valuation Oracle
         #[ink(constructor)]
         pub fn new(admin: AccountId) -> Self {
-            let mut access_control = AccessControl::new(64);
+            let mut access_control =
+                AccessControl::new(64).expect("cache_ttl_blocks is non-zero; infallible");
             let now = ink::env::block_timestamp::<ink::env::DefaultEnvironment>();
             let block_number = ink::env::block_number::<ink::env::DefaultEnvironment>();
-            access_control.bootstrap(admin, block_number, now);
+            access_control
+                .bootstrap(admin, block_number, now)
+                .expect("admin is provided by constructor caller; infallible");
             let _ = access_control.grant_role(admin, admin, Role::OracleAdmin, block_number, now);
             let _ = access_control.grant_permission_to_role(
                 admin,
