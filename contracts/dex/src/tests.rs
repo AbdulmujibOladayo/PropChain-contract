@@ -1224,6 +1224,8 @@ mod tests {
             dex.set_pool_max_slippage(pair_id, 9_999),
             Err(Error::InvalidPair)
         );
+    }
+
     // ── Route discovery adoption tests (Issue #1114) ──────────────────────
 
     #[ink::test]

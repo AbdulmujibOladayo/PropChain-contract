@@ -61,6 +61,16 @@ pub enum Error {
     /// Metadata attached to the token or request is invalid.
     InvalidMetadata,
 
+    // ── Validator / voting ───────────────────────────────────────────────────
+    /// A validator attempted to vote both approve and reject on the same request.
+    VoteConflict,
+    /// The staked-weight quorum for approval was not reached.
+    InsufficientStakeWeight,
+
+    // ── Rate limiting ────────────────────────────────────────────────────────
+    /// The supplied rate-limit configuration is invalid.
+    InvalidRateLimit,
+
     // ── Operational / infrastructure ────────────────────────────────────────
     /// Bridge operations (or a specific operation class) are paused.
     BridgePaused,
@@ -206,6 +216,9 @@ impl ContractError for Error {
             Error::AssetNotFrozen => bridge_codes::BRIDGE_INVALID_REQUEST,
             Error::InsufficientEmergencySignatures => bridge_codes::BRIDGE_INSUFFICIENT_SIGNATURES,
             Error::TransferFailed => bridge_codes::BRIDGE_TRANSFER_FAILED,
+            Error::VoteConflict => bridge_codes::BRIDGE_INVALID_REQUEST,
+            Error::InsufficientStakeWeight => bridge_codes::BRIDGE_INSUFFICIENT_SIGNATURES,
+            Error::InvalidRateLimit => bridge_codes::BRIDGE_INVALID_REQUEST,
         }
     }
 
@@ -267,6 +280,15 @@ impl ContractError for Error {
             }
             Error::TransferFailed => {
                 "The native-value transfer for this bridge recovery could not be executed"
+            }
+            Error::VoteConflict => {
+                "A validator attempted to vote both approve and reject on the same request"
+            }
+            Error::InsufficientStakeWeight => {
+                "The staked-weight quorum for approval was not reached"
+            }
+            Error::InvalidRateLimit => {
+                "The supplied rate-limit configuration is invalid"
             }
         }
     }
