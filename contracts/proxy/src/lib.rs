@@ -34,6 +34,32 @@
 //! own storage (not the proxy's). For true delegatecall semantics (shared
 //! storage), a low-level ink! storage overlay would be required — this is out
 //! of scope for the initial implementation.
+//!
+//! ## Reentrancy review (#1267)
+//!
+//! Findings from a review of every external call the proxy makes:
+//!
+//! - The state-changing messages (`set_implementation`,
+//!   `confirm_implementation`, `cancel_implementation`,
+//!   `set_upgrade_delay_blocks`) perform **no** cross-contract calls, so the
+//!   checks-effects-interleaving hazard does not apply to them: the admin
+//!   check and every state write complete before control could ever leave the
+//!   contract.
+//! - `call_implementation` is the only message that invokes another
+//!   contract. It previously took `&self` and could not be re-entered in a
+//!   way that mutated state — but a hostile implementation could re-enter it
+//!   with a *different* selector while the outer call was still in flight,
+//!   producing unbounded nested forwarding (and nested gas burn) that
+//!   observes a half-settled call stack.
+//! - Mitigation: `call_implementation` now takes `&mut self` and is guarded
+//!   by an `in_external_call` flag. A nested (or concurrent, within the same
+//!   execution) forwarding call fails fast with `ReentrancyDetected` instead
+//!   of recursing. The flag is cleared on every return path, so a failing
+//!   implementation call cannot permanently lock forwarding.
+//! - Re-entering the admin messages from the implementation is not a
+//!   viable vector: `env.caller()` inside those messages would be the
+//!   implementation's contract account, which is not the admin, so
+//!   `ensure_admin` rejects it before any state is touched.
 
 #[ink::contract]
 pub mod propchain_proxy {
@@ -90,6 +116,9 @@ pub mod propchain_proxy {
         ///
         /// Appended last so no existing discriminant moves.
         InvalidUpgradeDelay,
+        /// A forwarding call was re-entered while another one was still in
+        /// flight.
+        ReentrancyDetected,
     }
 
     impl From<ink::env::Error> for ProxyError {
@@ -111,9 +140,16 @@ pub mod propchain_proxy {
         admin: AccountId,
         /// Number of blocks that must pass between staging and confirmation.
         upgrade_delay_blocks: u64,
+        /// Reentrancy lock for `call_implementation`: true while a forwarded
+        /// cross-contract call is in flight (see the reentrancy review in the
+        /// crate docs).
+        in_external_call: bool,
     }
 
     /// Emitted when a new implementation is staged.
+    ///
+    /// @notice Announces that `new_implementation` was staged, confirmable
+    /// from block `effective_at`.
     #[ink(event)]
     pub struct UpgradeStaged {
         #[ink(topic)]
@@ -122,6 +158,9 @@ pub mod propchain_proxy {
     }
 
     /// Emitted when a staged upgrade is confirmed and takes effect.
+    ///
+    /// @notice Announces that the live implementation moved from
+    /// `old_implementation` to `new_implementation`.
     #[ink(event)]
     pub struct UpgradeConfirmed {
         #[ink(topic)]
@@ -146,8 +185,27 @@ pub mod propchain_proxy {
         by: AccountId,
     }
 
+    /// Emitted when the admin changes the upgrade delay.
+    ///
+    /// @notice Announces a change of the upgrade delay from `old_delay` to
+    /// `new_delay`, by `by`.
+    #[ink(event)]
+    pub struct UpgradeDelayChanged {
+        #[ink(topic)]
+        old_delay: u64,
+        #[ink(topic)]
+        new_delay: u64,
+        by: AccountId,
+    }
+
     impl TransparentProxy {
         /// Deploy the proxy with an initial implementation.
+        ///
+        /// @notice Deploys a transparent proxy pointing at `implementation`,
+        /// with `admin` as the account authorized to govern upgrades.
+        /// @param implementation The initial implementation contract to route calls to.
+        /// @param admin The account that may stage/confirm upgrades and change the delay.
+        /// @return The deployed proxy instance.
         ///
         /// The deployer becomes the admin. The upgrade delay starts at
         /// [`DEFAULT_UPGRADE_DELAY_BLOCKS`] and can be changed by the admin
@@ -160,12 +218,19 @@ pub mod propchain_proxy {
                 upgrade_effective_at: 0,
                 admin,
                 upgrade_delay_blocks: DEFAULT_UPGRADE_DELAY_BLOCKS,
+                in_external_call: false,
             }
         }
 
         // ── Admin-only messages ───────────────────────────────────────────
 
         /// Stage a new implementation address (admin only).
+        ///
+        /// @notice Stages `new_implementation`; it becomes the live
+        /// implementation only after `confirm_implementation` once the delay
+        /// has elapsed.
+        /// @param new_implementation The implementation to stage (must be non-zero).
+        /// @return `Ok(())` once staged.
         ///
         /// The upgrade will not be confirmable until `upgrade_delay_blocks`
         /// blocks have passed. Calling this again before confirmation replaces
@@ -198,6 +263,10 @@ pub mod propchain_proxy {
 
         /// Confirm a pending upgrade (admin only).
         ///
+        /// @notice Applies a previously staged implementation once the delay
+        /// has elapsed.
+        /// @return `Ok(())` once the staged implementation is live.
+        ///
         /// Succeeds only if the delay period has elapsed since `set_implementation`.
         #[ink(message)]
         pub fn confirm_implementation(&mut self) -> Result<(), ProxyError> {
@@ -223,6 +292,9 @@ pub mod propchain_proxy {
         }
 
         /// Withdraw a staged upgrade without applying it (admin only).
+        ///
+        /// @notice Clears a staged implementation without applying it.
+        /// @return `Ok(())` once the pending state is cleared.
         ///
         /// Clears `pending_implementation` and `upgrade_effective_at`, leaving
         /// the current `implementation` untouched. This is the explicit
@@ -260,6 +332,10 @@ pub mod propchain_proxy {
         }
 
         /// Update the upgrade delay (admin only).
+        ///
+        /// @notice Sets the delay applied to future stagings.
+        /// @param new_delay The new delay in blocks; must lie within the bounds.
+        /// @return `Ok(())` once the delay is updated.
         ///
         /// The new delay must be within
         /// `[MIN_UPGRADE_DELAY_BLOCKS, MAX_UPGRADE_DELAY_BLOCKS]`. Only
@@ -327,17 +403,32 @@ pub mod propchain_proxy {
 
         /// Forward a call to the implementation contract.
         ///
+        /// @notice Forwards a raw call to the current implementation contract.
+        /// @param selector The 4-byte message selector to invoke.
+        /// @param input SCALE-encoded message arguments.
+        /// @return The SCALE-encoded return value of the implementation call.
+        ///
         /// The 4-byte `selector` and SCALE-encoded `input` are forwarded
         /// via a cross-contract call. The implementation's return value
         /// replaces this call's return value.
         ///
         /// If the implementation call reverts, the error is propagated.
+        ///
+        /// Reentrancy: guarded against nested forwarding (see the crate-level
+        /// reentrancy review). Reverts with `ReentrancyDetected` if a
+        /// forwarded call attempts to re-enter this message while the outer
+        /// call is still in flight.
         #[ink(message)]
         pub fn call_implementation(
-            &self,
+            &mut self,
             selector: [u8; 4],
             input: Vec<u8>,
         ) -> Result<Vec<u8>, ProxyError> {
+            if self.in_external_call {
+                return Err(ProxyError::ReentrancyDetected);
+            }
+            self.in_external_call = true;
+
             let call_result = build_call::<ink::env::DefaultEnvironment>()
                 .call_v1(self.implementation)
                 .exec_input(
@@ -346,6 +437,10 @@ pub mod propchain_proxy {
                 )
                 .returns::<Vec<u8>>()
                 .try_invoke();
+
+            // Clear the lock on every path so a failing forwarded call cannot
+            // leave forwarding permanently disabled.
+            self.in_external_call = false;
 
             match call_result {
                 Ok(Ok(bytes)) => Ok(bytes),
