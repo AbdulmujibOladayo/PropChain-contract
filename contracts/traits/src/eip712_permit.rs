@@ -73,6 +73,7 @@ impl Eip712Permit {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)] // secp256k1 0.33 deprecated the engine-bound signer
     use secp256k1::{Message, Secp256k1, SecretKey};
 
     use super::*;
@@ -81,16 +82,16 @@ mod tests {
     /// (public_key, signature) in the shapes the contract expects.
     fn sign(index: u8, hash: &[u8; 32]) -> ([u8; 33], [u8; 65]) {
         let engine = Secp256k1::signing_only();
-        let mut secret = [0u8; 32];
-        secret[31] = index + 1; // deterministic distinct keys
-        let secret = SecretKey::from_slice(&secret).expect("valid secret");
-        let msg = Message::from_digest_slice(hash).expect("valid message");
-        let sig = engine.sign_ecdsa_recoverable(&msg, &secret);
+        let mut secret_bytes = [0u8; 32];
+        secret_bytes[31] = index + 1; // deterministic distinct keys
+        let secret = SecretKey::from_secret_bytes(secret_bytes).expect("valid secret");
+        let msg = Message::from_digest(*hash);
+        let sig = engine.sign_ecdsa_recoverable(msg, &secret);
         let (recovery_id, data) = sig.serialize_compact();
         let mut signature = [0u8; 65];
         signature[..64].copy_from_slice(&data);
-        signature[64] = recovery_id.to_i32() as u8;
-        let public = secp256k1::PublicKey::from_secret_key(&engine, &secret);
+        signature[64] = recovery_id.to_u8();
+        let public = secp256k1::PublicKey::from_secret_key(&secret);
         (public.serialize(), signature)
     }
 
