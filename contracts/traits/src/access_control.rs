@@ -367,7 +367,7 @@ impl AccessControl {
             pending_rotations: Mapping::default(),
             rotation_nonce: Mapping::default(),
             __storage_gap: [0u128; crate::constants::STORAGE_GAP_SIZE],
-        }
+        })
     }
 
     /// Bootstrap the access-control system by granting `SuperAdmin` and `Admin`
