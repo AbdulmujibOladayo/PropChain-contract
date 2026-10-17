@@ -4109,3 +4109,4 @@ pub mod audit_log_bounded;
 pub mod rate_limit_config;
 pub mod validator_bitmap_fix;
 pub mod validator_staking;
+pub mod bridge_history_pagination;

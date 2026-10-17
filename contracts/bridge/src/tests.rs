@@ -1872,15 +1872,6 @@ mod tests {
         );
 
         let metadata = PropertyMetadata {
-            location: String::from("Test"),
-    // ── Granular pause tests (Issue #1112) ────────────────────────────────
-    //
-    // Each test pauses ONE BridgeOperation and proves the matching message
-    // reverts with OperationPaused while unrelated operations keep working,
-    // then resumes and shows service is restored.
-
-    fn metadata() -> PropertyMetadata {
-        PropertyMetadata {
             location: String::from("Test Property"),
             size: 1000,
             legal_description: String::from("Test"),
@@ -1895,6 +1886,22 @@ mod tests {
         // Second request from the same account is rate-limited.
         let second = bridge.initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata);
         assert_eq!(second, Err(Error::RateLimitExceeded));
+    }
+
+    // ── Granular pause tests (Issue #1112) ────────────────────────────────
+    //
+    // Each test pauses ONE BridgeOperation and proves the matching message
+    // reverts with OperationPaused while unrelated operations keep working,
+    // then resumes and shows service is restored.
+
+    fn metadata() -> PropertyMetadata {
+        PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        }
     }
 
     #[ink::test]
@@ -2076,7 +2083,6 @@ mod tests {
         let extra = AccountId::from([0xffu8; 32]);
         assert_eq!(bridge.add_validator(extra), Err(Error::InsufficientSignatures));
         assert_eq!(bridge.get_validators().len(), 100);
-        }
     }
 
     fn flags_with(cross_chain_trades: bool) -> propchain_traits::PauseFlags {
@@ -2596,13 +2602,17 @@ mod tests {
         // Raise the rate limits the loading loop would otherwise hit: the
         // default daily cap is 10 requests/account and the default per-block
         // burst threshold is 5 requests.
-        bridge.config.max_requests_per_day = u64::MAX;
+        bridge.set_rate_limit_config(crate::rate_limit_config::RateLimitConfig {
+            max_requests_per_day: u64::MAX,
+            max_value_per_day: u128::MAX,
+            window_seconds: 1,
+        }).expect("set rate limit");
         bridge
             .suspicious_config
             .max_requests_per_block_per_account = u32::MAX;
 
         const REQUESTS: usize = 150;
-        assert!(REQUESTS > PropertyBridge::MAX_BRIDGE_HISTORY_PER_ACCOUNT);
+        assert!(REQUESTS > MAX_BRIDGE_HISTORY_PER_ACCOUNT);
         for _ in 0..REQUESTS {
             test::set_caller::<DefaultEnvironment>(accounts.alice);
             let request_id = bridge
@@ -2626,7 +2636,7 @@ mod tests {
         let full = bridge.get_bridge_history(accounts.alice, 0, 1_000_000);
         assert_eq!(
             full.len(),
-            PropertyBridge::MAX_BRIDGE_HISTORY_PER_ACCOUNT,
+            MAX_BRIDGE_HISTORY_PER_ACCOUNT,
             "history is capped at MAX_BRIDGE_HISTORY_PER_ACCOUNT"
         );
 
