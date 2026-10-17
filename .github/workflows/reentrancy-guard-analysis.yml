@@ -1,0 +1,39 @@
+name: ReentrancyGuard Static Analysis
+
+# Slither is a Solidity static analyser. ReentrancyGuard in this repository is
+# an ink!/Rust struct, so this workflow runs the Rust equivalent: Clippy with
+# warnings denied, plus the guard's own tests.
+
+on:
+  pull_request:
+    paths:
+      - "contracts/traits/src/reentrancy_guard.rs"
+      - "contracts/traits/tests/**"
+      - "contracts/lib/src/reentrancy_guard.rs"
+      - ".github/workflows/reentrancy-guard-analysis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reentrancy-guard-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyse:
+    name: Clippy and tests for ReentrancyGuard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Clippy
+        run: cargo clippy -p propchain-traits -p propchain-contracts -- -D warnings
+
+      - name: Guard tests
+        run: cargo test -p propchain-traits reentrancy
