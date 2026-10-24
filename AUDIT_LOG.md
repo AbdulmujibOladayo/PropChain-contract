@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Fri Oct 23 06:56:48 UTC 2026
+Generated on: Sat Oct 24 06:51:55 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -8,6 +8,14 @@ cargo-deny failed or flagged warnings
 ---
 ## 🔍 Vulnerability Advisory Scans (cargo-audit)
 ```text
+[0m[0m[1m[31mCrate:    [0m crypto-bigint
+[0m[0m[1m[31mVersion:  [0m 0.5.5
+[0m[0m[1m[31mTitle:    [0m Multiple timing variability issues in operations intended to be constant-time
+[0m[0m[1m[31mDate:     [0m 2026-10-23
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0387
+[0m[0m[1m[31mURL:      [0m https://github.com/RustCrypto/crypto-bigint/pull/1365
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.7.6
+
 [0m[0m[1m[31mCrate:    [0m h2
 [0m[0m[1m[31mVersion:  [0m 0.3.27
 [0m[0m[1m[31mTitle:    [0m h2 unbounded empty DATA frames
@@ -254,6 +262,14 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[33mDate:     [0m 2026-01-07
 [0m[0m[1m[33mID:       [0m RUSTSEC-2026-0002
 [0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0002
+
+[0m[0m[1m[33mCrate:    [0m tokio
+[0m[0m[1m[33mVersion:  [0m 1.52.1
+[0m[0m[1m[33mWarning:  [0m unsound
+[0m[0m[1m[33mTitle:    [0m `AsyncFd::new` and related constructors violate I/O safety
+[0m[0m[1m[33mDate:     [0m 2026-10-13
+[0m[0m[1m[33mID:       [0m RUSTSEC-2026-0386
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0386
 
 [0m[0m[1m[33mCrate:    [0m spin
 [0m[0m[1m[33mVersion:  [0m 0.9.8
