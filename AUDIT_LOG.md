@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Mon Nov  2 08:52:47 UTC 2026
+Generated on: Tue Nov  3 08:59:26 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -151,6 +151,15 @@ cargo-deny failed or flagged warnings
 
 [0m[0m[1m[31mCrate:    [0m zip
 [0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m zip: `ZipArchive::extract` aborts the process on a symlink entry with a large declared size
+[0m[0m[1m[31mDate:     [0m 2026-10-22
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0429
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0429
+[0m[0m[1m[31mSeverity: [0m 7.5 (high)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
 [0m[0m[1m[31mTitle:    [0m  Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation
 [0m[0m[1m[31mDate:     [0m 2026-10-09
 [0m[0m[1m[31mID:       [0m RUSTSEC-2026-0367
@@ -270,6 +279,10 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[33mDate:     [0m 2026-10-13
 [0m[0m[1m[33mID:       [0m RUSTSEC-2026-0386
 [0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0386
+
+[0m[0m[1m[33mCrate:    [0m async-executor
+[0m[0m[1m[33mVersion:  [0m 1.14.0
+[0m[0m[1m[33mWarning:  [0m yanked
 
 [0m[0m[1m[33mCrate:    [0m spin
 [0m[0m[1m[33mVersion:  [0m 0.9.8
