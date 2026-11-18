@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Tue Nov 17 10:10:27 UTC 2026
+Generated on: Wed Nov 18 09:43:25 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -169,12 +169,45 @@ cargo-deny failed or flagged warnings
 
 [0m[0m[1m[31mCrate:    [0m zip
 [0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m `ZipStreamReader` extracts entries under local-header names that can differ from the central directory
+[0m[0m[1m[31mDate:     [0m 2026-10-17
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0548
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0548
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.5
+
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
 [0m[0m[1m[31mTitle:    [0m  Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation
 [0m[0m[1m[31mDate:     [0m 2026-10-09
 [0m[0m[1m[31mID:       [0m RUSTSEC-2026-0367
 [0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0367
 [0m[0m[1m[31mSeverity: [0m 7.3 (high)
 [0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
+[0m[0m[1m[31mCrate:    [0m zip
+[0m[0m[1m[31mVersion:  [0m 2.3.0
+[0m[0m[1m[31mTitle:    [0m AES entries returned without checking their authentication code when the data ends early or is empty
+[0m[0m[1m[31mDate:     [0m 2026-10-22
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0545
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0545
+[0m[0m[1m[31mSeverity: [0m 6.5 (medium)
+[0m[0m[1m[31mSolution: [0m Upgrade to >=9.0.0
+
+[0m[0m[1m[33mCrate:    [0m chrono
+[0m[0m[1m[33mVersion:  [0m 0.4.44
+[0m[0m[1m[33mWarning:  [0m unmaintained
+[0m[0m[1m[33mTitle:    [0m chrono is unmaintained
+[0m[0m[1m[33mDate:     [0m 2026-09-14
+[0m[0m[1m[33mID:       [0m RUSTSEC-2026-0543
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0543
+
+[0m[0m[1m[33mCrate:    [0m humantime
+[0m[0m[1m[33mVersion:  [0m 2.3.0
+[0m[0m[1m[33mWarning:  [0m unmaintained
+[0m[0m[1m[33mTitle:    [0m humantime is unmaintained
+[0m[0m[1m[33mDate:     [0m 2026-09-14
+[0m[0m[1m[33mID:       [0m RUSTSEC-2026-0542
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0542
 
 [0m[0m[1m[33mCrate:    [0m instant
 [0m[0m[1m[33mVersion:  [0m 0.1.13
